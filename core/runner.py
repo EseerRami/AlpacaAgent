@@ -121,26 +121,55 @@ def run_once(
 
     if out.confidence < conf_threshold:
         print(f"Skipping trade: confidence {out.confidence} < {conf_threshold}")
+        append_event(db_path, state_key, "order_skipped",
+                     {"reason": "low_confidence",
+                      "confidence": out.confidence,
+                      "threshold": conf_threshold,
+                      "order": out.order.model_dump() if out.order else None})
         return max(int(out.sleep_seconds), 15)
 
     if not out.order or out.order.side in ("hold",):
         print("Trade requested but order missing/hold -> skipping.")
+        append_event(db_path, state_key, "order_skipped",
+                     {"reason": "order_missing_or_hold",
+                      "order": out.order.model_dump() if out.order else None})
         return max(int(out.sleep_seconds), 15)
 
     if out.order.notional is None or out.order.notional <= 0:
         print("Trade requested but notional missing/invalid -> skipping.")
+        append_event(db_path, state_key, "order_skipped",
+                     {"reason": "notional missing/invalid", "order": out.order.model_dump()})
         return max(int(out.sleep_seconds), 15)
 
-    placed = alpaca_create_order(
-        deps.alpaca,
-        symbol=out.order.symbol,
-        notional=float(out.order.notional),
-        side=out.order.side,
-        time_in_force=out.order.time_in_force,
-        order_type="market",
-    )
+    # Normalize crypto symbol — LLMs often emit "BTC" but Alpaca expects "BTC/USD"
+    symbol = out.order.symbol
+    _crypto_bases = {"BTC", "ETH", "SOL", "DOGE", "AVAX", "LINK", "DOT",
+                     "UNI", "AAVE", "SHIB", "PEPE", "LTC", "BCH", "MATIC"}
+    if symbol.upper() in _crypto_bases:
+        symbol = f"{symbol.upper()}/USD"
+        print(f"Normalized symbol {out.order.symbol} -> {symbol}")
 
-    append_event(db_path, state_key, "order_placed", {"order": placed})
+    try:
+        placed = alpaca_create_order(
+            deps.alpaca,
+            symbol=symbol,
+            notional=float(out.order.notional),
+            side=out.order.side,
+            time_in_force=out.order.time_in_force,
+            order_type="market",
+        )
+        append_event(db_path, state_key, "order_placed", {"order": placed})
+    except Exception as e:
+        # Don't let a failed order crash the cycle silently — log and move on
+        err_msg = str(e)
+        print(f"ORDER FAILED for {symbol}: {err_msg}")
+        append_event(db_path, state_key, "order_failed", {
+            "symbol": symbol,
+            "side": out.order.side,
+            "notional": float(out.order.notional),
+            "error": err_msg,
+        })
+        return max(int(out.sleep_seconds), 15)
 
     order_id = placed.get("id")
     if not order_id:

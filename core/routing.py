@@ -24,9 +24,31 @@ def _normalize_spec(spec: str) -> str:
 
 def build_model(spec: str, *, strict: bool = True):
     """
-    Build a PydanticAI model from an explicit format, e.g. "anthropic:claude-3-5-haiku-latest"
+    Build a PydanticAI model from an explicit format, e.g.:
+      "anthropic:claude-3-5-haiku-latest"
+      "ollama:llama3.1:8b"   -> local Ollama at OLLAMA_BASE_URL (default http://localhost:11434/v1)
     """
     spec = _normalize_spec(spec)
+
+    # Local-LLM shortcut: "ollama:<model>" routes through PydanticAI's Ollama provider
+    # (cost-saving alternative to anthropic). Skips inference of provider class.
+    if spec.startswith("ollama:"):
+        model_name = spec.split(":", 1)[1]
+        try:
+            import os
+            from pydantic_ai.providers.ollama import OllamaProvider
+            from pydantic_ai.models.openai import OpenAIChatModel
+            base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+            provider = OllamaProvider(base_url=base_url)
+            model = OpenAIChatModel(model_name, provider=provider)
+            log.info("Built Ollama model: %s @ %s", model_name, base_url)
+            return model
+        except Exception as e:
+            msg = f"Failed to build Ollama model '{spec}': {e}"
+            if strict:
+                raise ValueError(msg) from e
+            log.warning(msg)
+            return None
 
     try:
         model = infer_model(spec)

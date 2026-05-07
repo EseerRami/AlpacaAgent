@@ -25,7 +25,12 @@ agent = Agent(
         - Always include real URLs in `sources` when you used `web_search`.
         - Always output `confidence` in [0,1].
         - Always set `next_action` and `sleep_seconds`.
-        - If you propose a trade, populate `order`.
+        - If next_action='trade', you MUST populate the `order` field with:
+            - symbol: full Alpaca crypto pair like "BTC/USD", "ETH/USD", "SOL/USD"
+              (NEVER just "BTC" or "ETH" - the slash and quote currency are REQUIRED)
+            - side: "buy" or "sell" (NEVER "hold")
+            - notional: positive USD amount, max 10% of equity per trade
+            - time_in_force: "ioc" (immediate-or-cancel)
         - Only call `create_order` or `close_position` if allow_trading=True.
         - If confidence < 0.75, prefer next_action='wait' or 'noop' (no trade)."""
     ),
