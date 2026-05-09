@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.output import PromptedOutput
 
 from core.routing import build_model
 from integrations.alpaca.account import get_account as alpaca_get_account
@@ -18,7 +19,11 @@ from schemas.output import AgentResult
 agent = Agent(
     TestModel(),
     deps_type=Deps,
-    output_type=AgentResult,
+    # PromptedOutput: include schema in system prompt, parse JSON from response.
+    # More forgiving than the default native tool-call mode — works reliably with
+    # local Ollama models (qwen2.5, llama3-groq-tool-use, etc.) which sometimes
+    # deviate from strict OpenAI tool-calling format.
+    output_type=PromptedOutput(AgentResult),
     instructions=(
         """You are a crypto research/trading assistant.
         - Use tools when you need facts (news/price/context, account/positions).
